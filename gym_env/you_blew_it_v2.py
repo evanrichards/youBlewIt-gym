@@ -81,7 +81,7 @@ class YouBlewItV2Env(gym.Env):
         self.dice = [0,0,0,0,0,0]
         state = np.zeros(15, dtype=int)
         state[14] = 1
-        return state
+        return np.array(state)
 
     def seed(self, seed=None):
         """Sets the seed for this env's random number generator(s).
@@ -158,7 +158,7 @@ class YouBlewItV2Env(gym.Env):
         self.just_rolled = False
 
     def _roll_remaining(self):
-        for i in xrange(6):
+        for i in range(6):
             if self.dice[i] != 0:
                 self.dice[i] = self.np_random.randint(1, 7)
 
@@ -170,7 +170,7 @@ class YouBlewItV2Env(gym.Env):
         if self.blown or self.must_roll:
             return [9]
         actions = []
-        for i in xrange(1,7):
+        for i in range(1,7):
             if self._has_num_dice(i):
                 actions.append(i)
         if self._has_num_dice(5, 1):

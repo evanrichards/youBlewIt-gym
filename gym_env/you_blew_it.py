@@ -1,4 +1,5 @@
 import gym
+import numpy as np
 from gym import spaces
 from gym.utils import seeding
 
@@ -40,28 +41,29 @@ class YouBlewItEnv(gym.Env):
                 return self._illegal_move("rolled twice in a row without blowing it")
             self.just_rolled = True
             self._roll()
-            return self._get_observation(), 0, False, {}
+            return self._get_observation(), -10, False, {}
         self.just_rolled = False
         if self.must_roll:
             return self._illegal_move("in must roll state")            
         if action == 0:
             self.score += self.unbanked_score
+            reward = self.unbanked_score
             self.unbanked_score = 0
             self.must_roll = True
-            return self._get_observation(), 0, self.score >= self.max_score, {}
+            return self._get_observation(), reward, self.score >= self.max_score, {}
         if action >= 1 and action <= 6:
             if not self._has_num_dice(action):
                 return self._illegal_move("tried to take a combo that was not there")
             self._remove_dice(action, 3)
             self.unbanked_score += score_for_action(action)
-            return self._get_observation(), score_for_action(action), False, {}
+            return self._get_observation(), self.reward(), False, {}
         if action == 7 or action == 8:
             number = 5 if action == 7 else 1
             if not self._has_num_dice(number, 1):
                 return self._illegal_move("tried to take a die that was not there")
             self._remove_dice(number, 1)
             self.unbanked_score += score_for_action(action)
-            return self._get_observation(), score_for_action(action), False, {}
+            return self._get_observation(), self.reward(), False, {}
 
     def reset(self):
         """Resets the state of the environment and returns an initial observation.
@@ -74,7 +76,7 @@ class YouBlewItEnv(gym.Env):
         self.blown = False
         self.unbanked_score = 0
         self.dice = [0,0,0,0,0,0]
-        return self.dice + [0, False]
+        return np.array(self.dice + [0, False])
 
     def seed(self, seed=None):
         """Sets the seed for this env's random number generator(s).
@@ -94,10 +96,10 @@ class YouBlewItEnv(gym.Env):
         return [seed]
 
     def _illegal_move(self, reason):
-        return self.reset(), 0, True, {"reason": reason}    
+        return self.reset(), -10, True, {"reason": reason}    
 
     def _has_num_dice(self, number, num_dice=3):
-        return len(filter(lambda x: x == number, self.dice)) >= num_dice
+        return len(list(filter(lambda x: x == number, self.dice))) >= num_dice
 
     def _remove_dice(self, die_number, number_of_die):
         index = 0
@@ -109,7 +111,7 @@ class YouBlewItEnv(gym.Env):
         self.must_roll = sum(self.dice) == 0
 
     def _get_observation(self):
-        return self.dice + [self.unbanked_score, self.blown]
+        return np.array(self.dice + [self.unbanked_score, self.blown])
 
     def _is_blown(self):
         if self.must_roll:
@@ -139,7 +141,7 @@ class YouBlewItEnv(gym.Env):
         self.just_rolled = False
 
     def _roll_remaining(self):
-        for i in xrange(6):
+        for i in range(6):
             if self.dice[i] != 0:
                 self.dice[i] = self.np_random.randint(1, 7)
 
@@ -150,7 +152,7 @@ class YouBlewItEnv(gym.Env):
         if self.blown or self.must_roll:
             return [9]
         actions = [0,]
-        for i in xrange(1,7):
+        for i in range(1,7):
             if self._has_num_dice(i):
                 actions.append(i)
         if self._has_num_dice(5, 1):
@@ -163,6 +165,10 @@ class YouBlewItEnv(gym.Env):
 
     def num_remaining_dice(self):
         return len(filter(lambda x: x != 0, self.dice))
+
+    def reward(self):
+        return (float(self.unbanked_score) / float(self.max_score)) * 50.0
+
 
 def score_for_action(action):
     if action == 1:
