@@ -17,7 +17,7 @@ class YouBlewItV2Env(gym.Env[NDArray[np.int64], int]):
     # observation space consists of number of die left by index, has combos:
     # 1dl 2dl 3dl 4dl 5dl 6dl 1000 200 300 400 500 600 50 100, needs roll
     # [ 0,0,0,0,1,0,0,0,0,0,0,0,0,1] # 5 die left, 100 on the board
-    observation_space: spaces.Discrete = spaces.Discrete(15)
+    observation_space: spaces.MultiBinary = spaces.MultiBinary(15)
 
     must_roll: bool
     blow: bool
@@ -187,6 +187,13 @@ class YouBlewItV2Env(gym.Env[NDArray[np.int64], int]):
     @property
     def num_remaining_dice(self) -> int:
         return len([x for x in self.dice if x != 0])
+
+    def action_masks(self) -> NDArray[np.bool_]:
+        """Return a boolean mask of legal actions for MaskablePPO."""
+        mask = np.zeros(10, dtype=np.bool_)
+        for action in self.legal_actions:
+            mask[action] = True
+        return mask
 
 
 def score_for_action(action: int) -> int:

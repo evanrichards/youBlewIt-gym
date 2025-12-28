@@ -165,6 +165,13 @@ class YouBlewItEnv(gym.Env[NDArray[np.int64], int]):
     def num_remaining_dice(self) -> int:
         return len([x for x in self.dice if x != 0])
 
+    def action_masks(self) -> NDArray[np.bool_]:
+        """Return a boolean mask of legal actions for MaskablePPO."""
+        mask = np.zeros(10, dtype=np.bool_)
+        for action in self.legal_actions():
+            mask[action] = True
+        return mask
+
     def reward(self) -> float:
         return (float(self.unbanked_score) / float(self.max_score)) * 50.0
 
