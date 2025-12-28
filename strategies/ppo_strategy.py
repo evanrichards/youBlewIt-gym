@@ -59,7 +59,8 @@ class PPOStrategy:
         self._cached_dice = None
 
     def should_roll(
-        self, turn_num: int, total_score: int, remaining_dice: int, current_score: int
+        self, turn_num: int, total_score: int, remaining_dice: int, current_score: int,
+        opponent_score: int = 0
     ) -> bool:
         """Decide whether to roll or bank.
 
@@ -75,28 +76,41 @@ class PPOStrategy:
         # Update internal state
         self.agent_score = total_score
         self.unbanked_score = current_score
+        self.opponent_score = opponent_score
 
-        # Build observation (we're deciding between roll and bank, so no dice on table)
-        # This represents the state after taking dice or at start of turn
-        obs = self._build_observation(
-            dice_remaining=remaining_dice,
-            must_roll=(remaining_dice == 6 and current_score == 0),  # Start of turn
-            unbanked_score=current_score,
-        )
-
-        # Build action mask
-        action_mask = self._build_action_mask(
-            has_dice_on_table=False,
-            can_roll=True,
-            can_bank=(current_score > 0 and (total_score > 0 or current_score >= 1000)),
-        )
+        # Build observation using tracked dice state
+        # If no dice tracked (start of turn), we must roll
+        if not self.dice or remaining_dice == 6:
+            # Must roll - build observation with must-roll flag
+            obs = self._build_observation(
+                dice_remaining=remaining_dice,
+                must_roll=True,
+                unbanked_score=current_score,
+            )
+            action_mask = self._build_action_mask(
+                has_dice_on_table=False,
+                can_roll=True,
+                can_bank=False,
+            )
+        else:
+            # Have dice remaining after taking - use tracked dice for observation
+            obs = self._build_observation_with_dice(self.dice)
+            action_mask = self._build_action_mask_with_dice(self.dice)
 
         # Predict action
         action, _ = self.model.predict(obs, action_masks=action_mask, deterministic=True)
         action = int(action)
 
         # Action 9 = roll, action 0 = bank
-        return action == 9
+        should_roll_again = (action == 9)
+
+        # If banking, reset state for next turn
+        if not should_roll_again:
+            self.unbanked_score = 0
+            self.dice = []
+            self.just_rolled = False
+
+        return should_roll_again
 
     def actions(self, die_rolls: list[int]) -> list[str]:
         """Decide which dice to take after rolling.
@@ -135,7 +149,24 @@ class PPOStrategy:
         self._cached_dice = None
 
         # Translate model action to scorer method calls
-        return self._action_to_scorer_methods(action, die_rolls)
+        scorer_methods = self._action_to_scorer_methods(action, die_rolls)
+
+        # CRITICAL: Update internal state to reflect what dice will be taken
+        # This ensures should_roll() has correct dice state on next call
+        scorer = Scorer(die_rolls)
+        scorer.apply_actions(scorer_methods)
+        self.dice = scorer._make_remaining_dice()
+        self.just_rolled = False
+
+        # Update unbanked score
+        if action >= 1 and action <= 6:  # Triples
+            self.unbanked_score += [1000, 200, 300, 400, 500, 600][action - 1]
+        elif action == 7:  # Single 5
+            self.unbanked_score += 50
+        elif action == 8:  # Single 1
+            self.unbanked_score += 100
+
+        return scorer_methods
 
     def _build_observation(
         self,
