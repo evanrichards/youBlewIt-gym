@@ -1,78 +1,134 @@
+from typing import Protocol
+
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 from numpy.typing import NDArray
 
+from scorer import Scorer
+
+
+class Strategy(Protocol):
+    def should_roll(
+        self, turn_num: int, total_score: int, remaining_dice: int, current_score: int
+    ) -> bool: ...
+
+    def actions(self, die_rolls: list[int]) -> list[str]: ...
+
+
 StepResult = tuple[NDArray[np.int64], float, bool, bool, dict[str, str]]
+
+# Score buckets: 0-2k, 2k-4k, 4k-6k, 6k-8k, 8k-10k
+NUM_SCORE_BUCKETS = 5
+SCORE_BUCKET_SIZE = 2000
+
+WIN_BONUS = 1000.0
 
 # Minimum score needed to "get on the board" with your first bank
 MIN_FIRST_BANK = 1000
 
 
-class YouBlewItV2Env(gym.Env[NDArray[np.int64], int]):
-    # action space consists of one of every combo (6), one and five (2), roll and stop (2)
-    # stop, 1s, 2s, 3s, 4s, 5s, 6s, 50, 100, roll
-    action_space: spaces.Discrete = spaces.Discrete(10)
+def score_to_bucket(score: int) -> int:
+    return min(score // SCORE_BUCKET_SIZE, NUM_SCORE_BUCKETS - 1)
 
-    # observation space consists of number of die left by index, has combos:
-    # 1dl 2dl 3dl 4dl 5dl 6dl 1000 200 300 400 500 600 50 100, needs roll
-    # [ 0,0,0,0,1,0,0,0,0,0,0,0,0,1] # 5 die left, 100 on the board
-    observation_space: spaces.Discrete = spaces.Discrete(15)
+
+class YouBlewIt1v1Env(gym.Env[NDArray[np.int64], int]):
+    """1v1 competitive You Blew It environment.
+
+    The agent plays against an opponent using a fixed strategy.
+    Turns alternate: agent acts, then opponent takes a full turn.
+    Game ends when either player reaches max_score.
+
+    Observation space (25 dims):
+        - Positions 0-5: number of dice remaining (one-hot)
+        - Positions 6-13: available scoring actions
+        - Position 14: needs roll flag
+        - Positions 15-19: agent score bucket (one-hot)
+        - Positions 20-24: opponent score bucket (one-hot)
+
+    Rewards:
+        - Banking points: amount banked
+        - Winning: +WIN_BONUS
+        - Illegal move: -1
+    """
+
+    action_space: spaces.Discrete = spaces.Discrete(10)
+    observation_space: spaces.MultiBinary = spaces.MultiBinary(25)
 
     must_roll: bool
-    blow: bool
     score: int
+    opponent_score: int
     max_score: int
     just_rolled: bool
     unbanked_score: int
     dice: list[int]
     blown: bool
+    opponent_strategy: Strategy
+    turn_num: int
 
-    def __init__(self) -> None:
+    def __init__(self, opponent_strategy: Strategy) -> None:
+        self.opponent_strategy = opponent_strategy
         self.must_roll = False
-        self.blow = False
         self.score = 0
+        self.opponent_score = 0
         self.max_score = 10000
         self.just_rolled = False
         self.unbanked_score = 0
         self.dice = [0, 0, 0, 0, 0, 0]
         self.blown = False
+        self.turn_num = 0
 
     def step(self, action: int) -> StepResult:
-        """Run one timestep of the environment's dynamics.
-
-        Accepts an action and returns a tuple (observation, reward, terminated, truncated, info).
-        """
         if not self.action_space.contains(action):
             return self._illegal_move("no such action")
-        if action == 9:
+
+        if action == 9:  # Roll
             if self.just_rolled:
                 return self._illegal_move("rolled twice in a row without blowing it")
             self.just_rolled = True
             self._roll()
             return self._get_observation(), 0.0, False, False, {}
+
         self.just_rolled = False
+
         if self.must_roll:
             return self._illegal_move("in must roll state")
-        if action == 0:
+
+        if action == 0:  # Stop/bank
             banked = self.unbanked_score
             self.score += self.unbanked_score
             self.unbanked_score = 0
             self.must_roll = True
-            return self._get_observation(), float(banked), self.score >= self.max_score, False, {}
-        if action >= 1 and action <= 6:
+
+            # Check if agent won
+            if self.score >= self.max_score:
+                return self._get_observation(), float(banked) + WIN_BONUS, True, False, {"result": "win"}
+
+            # Opponent takes their turn
+            self._opponent_turn()
+
+            # Check if opponent won
+            if self.opponent_score >= self.max_score:
+                return self._get_observation(), float(banked), True, False, {"result": "loss"}
+
+            self.turn_num += 1
+            return self._get_observation(), float(banked), False, False, {}
+
+        if action >= 1 and action <= 6:  # Take triple combo
             if not self._has_num_dice(action):
                 return self._illegal_move("tried to take a combo that was not there")
             self._remove_dice(action, 3)
             self.unbanked_score += score_for_action(action)
             return self._get_observation(), 0.0, False, False, {}
-        if action == 7 or action == 8:
+
+        if action == 7 or action == 8:  # Take single 5 or 1
             number = 5 if action == 7 else 1
             if not self._has_num_dice(number, 1):
                 return self._illegal_move("tried to take a die that was not there")
             self._remove_dice(number, 1)
             self.unbanked_score += score_for_action(action)
             return self._get_observation(), 0.0, False, False, {}
+
         return self._illegal_move("unknown action")
 
     def reset(
@@ -80,19 +136,54 @@ class YouBlewItV2Env(gym.Env[NDArray[np.int64], int]):
         seed: int | None = None,
         options: dict[str, object] | None = None,
     ) -> tuple[NDArray[np.int64], dict[str, object]]:
-        """Resets the state of the environment and returns an initial observation."""
-        # 1dl 2dl 3dl 4dl 5dl 6dl 1000 200 300 400 500 600 50 100 needs roll
-        # [ 0,0,0,0,1,0,0,0,0,0,0,0,0,1] # 5 die left, 100 on the board
         super().reset(seed=seed)
         self.just_rolled = False
         self.must_roll = True
         self.score = 0
+        self.opponent_score = 0
         self.blown = False
         self.unbanked_score = 0
         self.dice = [0, 0, 0, 0, 0, 0]
-        state = np.zeros(15, dtype=np.int64)
-        state[14] = 1
-        return np.array(state), {}
+        self.turn_num = 0
+        return self._get_observation(), {}
+
+    def _opponent_turn(self) -> None:
+        """Simulate a complete turn for the opponent using their strategy."""
+        turn_score = self._play_opponent_turn(current_score=0, num_dice=6)
+        self.opponent_score += turn_score
+
+    def _play_opponent_turn(self, current_score: int, num_dice: int) -> int:
+        """Recursively play opponent's turn, handling hot dice (rolling all 6 again)."""
+        while self._opponent_should_roll(num_dice, current_score):
+            dice = self._roll_n_dice(num_dice)
+            scorer = Scorer(dice)
+
+            if scorer.is_blown():
+                return 0  # Lost all unbanked points
+
+            actions = self.opponent_strategy.actions(dice)
+            turn_score = scorer.apply_actions(actions)
+            current_score += turn_score
+            num_dice = scorer.num_remaining_dice()
+
+            # Hot dice: used all dice, roll all 6 again
+            if num_dice == 0:
+                num_dice = 6
+
+        return current_score
+
+    def _opponent_should_roll(self, remaining_dice: int, current_score: int) -> bool:
+        """Check if opponent wants to roll based on their strategy."""
+        # Must roll if not yet on board and haven't reached minimum
+        if self.opponent_score == 0 and current_score < MIN_FIRST_BANK:
+            return True
+        return self.opponent_strategy.should_roll(
+            self.turn_num, self.opponent_score, remaining_dice, current_score
+        )
+
+    def _roll_n_dice(self, n: int) -> list[int]:
+        """Roll n dice and return the values."""
+        return [int(x) for x in self.np_random.integers(1, 7, n)]
 
     def _illegal_move(self, reason: str) -> StepResult:
         obs, _ = self.reset()
@@ -111,20 +202,29 @@ class YouBlewItV2Env(gym.Env[NDArray[np.int64], int]):
         self.must_roll = sum(self.dice) == 0
 
     def _get_observation(self) -> NDArray[np.int64]:
-        # 0     1   2   3   4   5   6   7   8   9   10  11  12  13  14
-        # 1dl 2dl 3dl 4dl 5dl 6dl 1000 200 300 400 500 600 50 100  needs roll
-        # [ 0,0,0,0,1,0,0,0,0,0,0,0,0,1] # 5 die left, 100 on the board
-        state = np.zeros(15, dtype=np.int64)
+        # Positions 0-14: same as v2
+        # Positions 15-19: agent score bucket (one-hot)
+        # Positions 20-24: opponent score bucket (one-hot)
+        state = np.zeros(25, dtype=np.int64)
+
+        # Dice remaining (positions 0-5)
         remaining = self.num_remaining_dice
         if remaining > 0:
             state[remaining - 1] = 1
+
+        # Legal actions (positions 6-14)
         actions = self.legal_actions
         if actions == [9]:
             state[14] = 1
-            return state
-        for action in actions:
-            state[action + 5] = 1
-        state[14] = 0
+        else:
+            for action in actions:
+                state[action + 5] = 1
+            state[14] = 0
+
+        # Score buckets
+        state[15 + score_to_bucket(self.score)] = 1
+        state[20 + score_to_bucket(self.opponent_score)] = 1
+
         return state
 
     def _is_blown(self) -> bool:
