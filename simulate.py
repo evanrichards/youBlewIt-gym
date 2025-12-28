@@ -8,7 +8,7 @@ from scorer import Scorer
 from strategies import BasicStrategy, EvansStrategy, GameAwareStrategy, MomsStrategy, RandomStrategy
 
 WINNING_SCORE = 10000
-MIN_FIRST_BANK = 800
+MIN_FIRST_BANK = 1000
 
 
 @dataclass

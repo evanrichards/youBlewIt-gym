@@ -33,7 +33,7 @@ OPPONENT_ICONS = ["🤖", "👾", "🎰"]
 
 # Game constants
 WINNING_SCORE = 10000
-MIN_FIRST_BANK = 800
+MIN_FIRST_BANK = 1000
 
 # Dice face representations
 DICE_FACES = {

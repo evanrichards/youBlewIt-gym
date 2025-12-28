@@ -84,7 +84,7 @@ class YouBlewIt:
         return (current_score, turn_actions + new_actions)
 
     def _should_roll(self, turn_num: int, remaining_dice: int, current_score: int) -> bool:
-        has_to = self.total_score == 0 and current_score < 800
+        has_to = self.total_score == 0 and current_score < 1000
         game_over = self.stop_score and current_score + self.total_score >= self.stop_score
         strategy_says = self.strategy.should_roll(
             turn_num, self.total_score, remaining_dice, current_score
