@@ -10,7 +10,7 @@ import streamlit as st
 import gym_env  # noqa: F401 - registers environments
 from gym_env.you_blew_it import YouBlewItEnv
 from scorer import Scorer
-from strategies import BasicStrategy, EvansStrategy, GameAwareStrategy, MomsStrategy, RandomStrategy
+from strategies import BasicStrategy, EvansStrategy, GameAwareStrategy, MomsStrategy, PPOStrategy, RandomStrategy
 
 # Strategy options with descriptions
 STRATEGIES = {
@@ -23,6 +23,10 @@ STRATEGIES = {
     "Game Aware": (
         "Dynamic programming optimal thresholds with endgame racing",
         lambda: GameAwareStrategy(),
+    ),
+    "PPO": (
+        "Trained MaskablePPO neural network",
+        lambda: PPOStrategy(),
     ),
     "Random": ("Random legal moves - chaotic baseline", lambda: RandomStrategy()),
 }
