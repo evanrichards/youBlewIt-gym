@@ -7,6 +7,7 @@ import gym_env.you_blew_it_1v1  # noqa: F401
 from strategies.basic_strategy import BasicStrategy
 from strategies.moms_strategy import MomsStrategy
 from strategies.evans_strategy import EvansStrategy
+from strategies.random_strategy import RandomStrategy
 
 gym.register(
     id="YouBlewIt-v2", entry_point="gym_env.you_blew_it_v2:YouBlewItV2Env", max_episode_steps=1000
@@ -33,4 +34,10 @@ gym.register(
     entry_point="gym_env.you_blew_it_1v1:YouBlewIt1v1Env",
     max_episode_steps=1000,
     kwargs={"opponent_strategy": EvansStrategy({1: 300, 2: 300, 3: 350, 4: 400, 5: 500, 6: 600})},
+)
+gym.register(
+    id="YouBlewIt-1v1-random",
+    entry_point="gym_env.you_blew_it_1v1:YouBlewIt1v1Env",
+    max_episode_steps=1000,
+    kwargs={"opponent_strategy": RandomStrategy()},
 )
