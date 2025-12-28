@@ -5,7 +5,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from scorer import Scorer
-from strategies import BasicStrategy, EvansStrategy, MomsStrategy, RandomStrategy
+from strategies import BasicStrategy, EvansStrategy, GameAwareStrategy, MomsStrategy, RandomStrategy
 
 WINNING_SCORE = 10000
 MIN_FIRST_BANK = 800
@@ -23,7 +23,7 @@ def roll_dice(num_dice: int) -> list[int]:
 
 
 def play_turn(
-    strategy: BasicStrategy | MomsStrategy | EvansStrategy | RandomStrategy, total_score: int
+    strategy: BasicStrategy | MomsStrategy | EvansStrategy | GameAwareStrategy | RandomStrategy, total_score: int
 ) -> int:
     """Play a single turn, return points scored (0 if blown)."""
     current_score = 0
@@ -61,8 +61,8 @@ def play_turn(
 
 
 def play_game(
-    strat1: BasicStrategy | MomsStrategy | EvansStrategy | RandomStrategy,
-    strat2: BasicStrategy | MomsStrategy | EvansStrategy | RandomStrategy,
+    strat1: BasicStrategy | MomsStrategy | EvansStrategy | GameAwareStrategy | RandomStrategy,
+    strat2: BasicStrategy | MomsStrategy | EvansStrategy | GameAwareStrategy | RandomStrategy,
 ) -> GameResult:
     """Play a full game between two strategies. Returns GameResult."""
     scores = [0, 0]
@@ -88,6 +88,7 @@ def run_simulation(num_games: int = 10000) -> None:
         "Basic": lambda: BasicStrategy(),
         "Mom's": lambda: MomsStrategy(),
         "Evan's": lambda: EvansStrategy({1: 300, 2: 300, 3: 350, 4: 400, 5: 500, 6: 600}),
+        "Game Aware": lambda: GameAwareStrategy(),
     }
 
     strategy_names = list(strategies.keys())

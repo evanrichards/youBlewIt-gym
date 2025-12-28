@@ -10,7 +10,7 @@ import streamlit as st
 import gym_env  # noqa: F401 - registers environments
 from gym_env.you_blew_it import YouBlewItEnv
 from scorer import Scorer
-from strategies import BasicStrategy, EvansStrategy, MomsStrategy, RandomStrategy
+from strategies import BasicStrategy, EvansStrategy, GameAwareStrategy, MomsStrategy, RandomStrategy
 
 # Strategy options with descriptions
 STRATEGIES = {
@@ -19,6 +19,10 @@ STRATEGIES = {
     "Evan's": (
         "Tuned thresholds per remaining dice count",
         lambda: EvansStrategy({1: 300, 2: 300, 3: 350, 4: 400, 5: 500, 6: 600}),
+    ),
+    "Game Aware": (
+        "Dynamic programming optimal thresholds with endgame racing",
+        lambda: GameAwareStrategy(),
     ),
     "Random": ("Random legal moves - chaotic baseline", lambda: RandomStrategy()),
 }
@@ -262,57 +266,110 @@ def render_dice(dice: list[int], label: str = "Dice") -> None:
     visible_dice = [d for d in dice if d != 0]
     if not visible_dice:
         return
-    st.write(f"**{label}:**")
     dice_str = " ".join(DICE_FACES[d] for d in visible_dice)
     st.markdown(
-        f"<h1 style='font-size: 4rem; letter-spacing: 0.5rem;'>{dice_str}</h1>",
+        f"""<div style='
+            font-size: 3.5rem;
+            letter-spacing: 0.8rem;
+            padding: 0.5rem 0;
+            text-align: center;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.08);
+        '>{dice_str}</div>""",
         unsafe_allow_html=True,
     )
 
 
-def render_scoreboard() -> None:
-    """Render the scoreboard with multiple opponents."""
+def render_scoreboard_compact() -> None:
+    """Render a compact scoreboard that fits above the fold."""
     env = get_env()
     num_opponents = st.session_state.num_opponents
     spectator = st.session_state.spectator_mode
 
-    # Create columns: player + opponents
+    # Single row with scores and mini progress bars
     cols = st.columns(1 + num_opponents)
 
     with cols[0]:
         if spectator:
             player_name = st.session_state.player_strategy_name
-            label = f"🎯 {player_name}"
-            st.metric(label, f"{st.session_state.player_score:,}")
+            score = st.session_state.player_score
+            pct = min(score / WINNING_SCORE * 100, 100)
+            st.markdown(
+                f"""<div style='text-align:center;'>
+                <div style='font-size:0.85rem;color:#888;'>🎯 {player_name}</div>
+                <div style='font-size:1.8rem;font-weight:700;'>{score:,}</div>
+                <div style='background:#333;border-radius:4px;height:6px;margin-top:4px;'>
+                    <div style='background:#4CAF50;height:100%;width:{pct}%;border-radius:4px;'></div>
+                </div></div>""",
+                unsafe_allow_html=True,
+            )
         else:
-            delta = f"+{env.unbanked_score}" if env.unbanked_score > 0 else None
-            st.metric("You", f"{st.session_state.player_score:,}", delta=delta)
+            score = st.session_state.player_score
+            unbanked = env.unbanked_score
+            pct = min(score / WINNING_SCORE * 100, 100)
+            delta_html = f"<span style='color:#4CAF50;font-size:0.9rem;'> +{unbanked}</span>" if unbanked > 0 else ""
+            st.markdown(
+                f"""<div style='text-align:center;'>
+                <div style='font-size:0.85rem;color:#888;'>🎮 You</div>
+                <div style='font-size:1.8rem;font-weight:700;'>{score:,}{delta_html}</div>
+                <div style='background:#333;border-radius:4px;height:6px;margin-top:4px;'>
+                    <div style='background:#4CAF50;height:100%;width:{pct}%;border-radius:4px;'></div>
+                </div></div>""",
+                unsafe_allow_html=True,
+            )
 
     for i in range(num_opponents):
         with cols[i + 1]:
             name = st.session_state.strategy_names[i]
             score = st.session_state.opponent_scores[i]
-            st.metric(f"{OPPONENT_ICONS[i]} {name}", f"{score:,}")
-
-    # Progress bars
-    player_label = st.session_state.player_chart_label
-    st.progress(min(st.session_state.player_score / WINNING_SCORE, 1.0), text=player_label)
-    for i in range(num_opponents):
-        name = st.session_state.strategy_names[i]
-        score = st.session_state.opponent_scores[i]
-        st.progress(min(score / WINNING_SCORE, 1.0), text=f"{OPPONENT_ICONS[i]} {name}")
-
-    # Score history chart
-    if len(st.session_state.score_history["turn"]) > 1:
-        df = pd.DataFrame(st.session_state.score_history)
-        df = df.set_index("turn")
-        st.line_chart(df, height=200)
+            pct = min(score / WINNING_SCORE * 100, 100)
+            st.markdown(
+                f"""<div style='text-align:center;'>
+                <div style='font-size:0.85rem;color:#888;'>{OPPONENT_ICONS[i]} {name}</div>
+                <div style='font-size:1.8rem;font-weight:700;'>{score:,}</div>
+                <div style='background:#333;border-radius:4px;height:6px;margin-top:4px;'>
+                    <div style='background:#ff6b6b;height:100%;width:{pct}%;border-radius:4px;'></div>
+                </div></div>""",
+                unsafe_allow_html=True,
+            )
 
 
 def main() -> None:
     st.set_page_config(page_title="You Blew It!", page_icon="🎲", layout="centered")
-    st.title("🎲 You Blew It!")
-    st.caption(f"First to {WINNING_SCORE:,} wins! Need {MIN_FIRST_BANK}+ to get on the board.")
+
+    # CSS for consistent layout
+    st.markdown(
+        """
+        <style>
+        .stButton > button {
+            border-radius: 8px;
+            font-weight: 600;
+            padding: 0.5rem 1rem;
+        }
+        .block-container {
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+        }
+        /* Activity log with fixed height and scroll */
+        .activity-log {
+            height: 120px;
+            overflow-y: auto;
+            background: rgba(255,255,255,0.02);
+            border-radius: 8px;
+            padding: 0.5rem;
+            margin: 0.5rem 0;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Compact header (with top margin to clear Deploy banner)
+    st.markdown(
+        f"<h2 style='margin:0;padding-top:3rem;'>🎲 You Blew It! <span style='font-size:0.5em;color:#888;'>First to {WINNING_SCORE:,}</span></h2>",
+        unsafe_allow_html=True,
+    )
 
     init_game_state()
 
@@ -418,8 +475,7 @@ def main() -> None:
             st.rerun()
         return
 
-    render_scoreboard()
-    st.divider()
+    render_scoreboard_compact()
 
     # Handle "blew it" pause screen (only in non-spectator mode)
     if st.session_state.blew_it and not st.session_state.spectator_mode:
@@ -458,32 +514,34 @@ def main() -> None:
         name = st.session_state.strategy_names[idx]
         score = st.session_state.opponent_scores[idx]
 
-        st.subheader(f"{OPPONENT_ICONS[idx]} {name}'s Turn")
-        for entry in st.session_state.opponent_turn_log:
-            st.write(entry)
-
         # Check for win
         if score >= WINNING_SCORE:
             st.session_state.game_over = True
             st.session_state.winner = idx
             st.rerun()
 
-        st.divider()
+        # Activity log in scrollable container
+        log_html = "<br>".join(st.session_state.opponent_turn_log)
+        st.markdown(
+            f"""<div class='activity-log'>
+            <strong>{OPPONENT_ICONS[idx]} {name}'s Turn</strong><br>
+            {log_html}
+            </div>""",
+            unsafe_allow_html=True,
+        )
 
         # Determine next action
         next_idx = idx + 1
         spectator = st.session_state.spectator_mode
         if next_idx < st.session_state.num_opponents:
-            # More opponents to play
             next_name = st.session_state.strategy_names[next_idx]
-            btn_label = f"Continue to {OPPONENT_ICONS[next_idx]} {next_name}'s Turn"
+            btn_label = f"Continue → {OPPONENT_ICONS[next_idx]} {next_name}"
         else:
-            # All opponents done, back to player
             if spectator:
                 player_name = st.session_state.player_strategy_name
-                btn_label = f"Continue to 🎯 {player_name}'s Turn"
+                btn_label = f"Continue → 🎯 {player_name}"
             else:
-                btn_label = "Continue to Your Turn"
+                btn_label = "Continue → Your Turn"
 
         if st.button(btn_label, type="primary", use_container_width=True):
             st.session_state.opponent_turn_done = False
@@ -526,9 +584,6 @@ def main() -> None:
         # Show player turn results
         if st.session_state.player_turn_done:
             player_name = st.session_state.player_strategy_name
-            st.subheader(f"🎯 {player_name}'s Turn")
-            for entry in st.session_state.player_turn_log:
-                st.write(entry)
 
             # Check for win
             if st.session_state.player_score >= WINNING_SCORE:
@@ -536,9 +591,18 @@ def main() -> None:
                 st.session_state.winner = "player"
                 st.rerun()
 
-            st.divider()
+            # Activity log in scrollable container
+            log_html = "<br>".join(st.session_state.player_turn_log)
+            st.markdown(
+                f"""<div class='activity-log'>
+                <strong>🎯 {player_name}'s Turn</strong><br>
+                {log_html}
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
             next_name = st.session_state.strategy_names[0]
-            btn_label = f"Continue to {OPPONENT_ICONS[0]} {next_name}'s Turn"
+            btn_label = f"Continue → {OPPONENT_ICONS[0]} {next_name}"
 
             if st.button(btn_label, type="primary", use_container_width=True):
                 st.session_state.player_turn_done = False
@@ -550,42 +614,40 @@ def main() -> None:
 
     # Non-spectator: manual player turn
     env = get_env()
-    st.subheader("Your Turn")
-    st.info(st.session_state.message)
-
-    if any(d != 0 for d in env.dice):
-        render_dice(env.dice, "Current Roll")
-
     legal = env.legal_actions()
     mask = env.action_masks()
 
-    col1, col2 = st.columns(2)
+    # Dice display
+    if any(d != 0 for d in env.dice):
+        render_dice(env.dice)
 
+    # Action buttons - all in one row when possible
+    scoring_actions = [a for a in legal if 1 <= a <= 8]
+
+    # Primary actions: Roll and Bank
+    col1, col2 = st.columns(2)
     with col1:
         if mask[9]:
-            if st.button("🎲 Roll Dice", type="primary", use_container_width=True):
+            if st.button("🎲 Roll", type="primary", use_container_width=True):
                 do_action(9, pre_roll_score=env.unbanked_score)
                 st.rerun()
-
     with col2:
         if mask[0]:
-            bank_label = f"💰 Bank {env.unbanked_score} points"
-            if st.button(bank_label, type="secondary", use_container_width=True):
+            if st.button(f"💰 Bank {env.unbanked_score}", type="secondary", use_container_width=True):
                 do_action(0)
                 st.rerun()
         elif env.unbanked_score > 0 and st.session_state.player_score == 0:
             need = MIN_FIRST_BANK - env.unbanked_score
             if need > 0:
-                st.warning(f"Need {need} more to bank")
+                st.caption(f"Need {need} more to bank")
 
-    scoring_actions = [a for a in legal if 1 <= a <= 8]
+    # Scoring moves
     if scoring_actions:
-        st.write("**Available moves:**")
-        cols = st.columns(min(len(scoring_actions), 3))
+        cols = st.columns(min(len(scoring_actions), 4))
         for i, action in enumerate(scoring_actions):
             name, emoji = ACTION_NAMES[action]
-            with cols[i % 3]:
-                if st.button(f"{emoji} {name}", key=f"action_{action}", use_container_width=True):
+            with cols[i % 4]:
+                if st.button(f"{name}", key=f"action_{action}", use_container_width=True):
                     do_action(action)
                     st.rerun()
 
