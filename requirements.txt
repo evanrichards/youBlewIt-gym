@@ -1,6 +1,0 @@
-gym
-numpy
-keras
-tensorflow
-stable-baselines3
-pyglet # only for baselines

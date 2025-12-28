@@ -1,7 +1,9 @@
-env
+env/
 .DS_Store
-**.pyc
-.venv
-models
-runs
-wandb
+__pycache__/
+*.pyc
+.venv/
+models/
+runs/
+wandb/
+.ruff_cache/

@@ -1,12 +1,12 @@
 import os
-import gym
-import gym_env
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.env_checker import check_env
-from stable_baselines3 import PPO
-from wandb.integration.sb3 import WandbCallback
-import wandb
 import time
+
+import gymnasium as gym
+import wandb
+from stable_baselines3 import PPO
+from stable_baselines3.common.monitor import Monitor
+from wandb.integration.sb3 import WandbCallback
+
 env_name = "YouBlewIt-v1"
 
 wandb.init(
@@ -29,31 +29,29 @@ model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=f"runs/{env_name}")
 iters = 0
 while iters < 10:
     iters += 1
-    model.learn(
-        total_timesteps=TIMESTEPS,
-        reset_num_timesteps=False,
-        callback=WandbCallback())
+    model.learn(total_timesteps=TIMESTEPS, reset_num_timesteps=False, callback=WandbCallback())
     model_path = os.path.join(
-        models_dir, "PPO_" + env_name + "_" + str(iters * TIMESTEPS + pickup_step))
+        models_dir, "PPO_" + env_name + "_" + str(iters * TIMESTEPS + pickup_step)
+    )
     print(f"iter {iters}: Saving model to {model_path}")
     model.save(model_path)
 
-obs = env.reset()
-for i in range(1000):
+obs, _ = env.reset()
+for _i in range(1000):
     action, _states = model.predict(obs, deterministic=True)
-    obs, reward, done, info = env.step(action)
-    if done:
-        obs = env.reset()
-actions_list = ' stop, 1s, 2s, 3s, 4s, 5s, 6s, 50, 100, roll'.split(', ')
-obs = env.reset()
+    obs, reward, terminated, truncated, info = env.step(action)
+    if terminated or truncated:
+        obs, _ = env.reset()
+actions_list = [" stop", "1s", "2s", "3s", "4s", "5s", "6s", "50", "100", "roll"]
+obs, _ = env.reset()
 while True:
     action, _states = model.predict(obs, deterministic=True)
-    print(f'given obs of {obs}, action is {actions_list[action]}')
-    obs, reward, done, info = env.step(action)
-    print(f'reward of {reward} and done is {done} and info is {info}')
-    if done:
-        print('new game')
-        obs = env.reset()
+    print(f"given obs of {obs}, action is {actions_list[action]}")
+    obs, reward, terminated, truncated, info = env.step(action)
+    print(f"reward of {reward} and done is {terminated or truncated} and info is {info}")
+    if terminated or truncated:
+        print("new game")
+        obs, _ = env.reset()
     # wait for user input
     input()
 env.close()
