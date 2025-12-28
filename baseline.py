@@ -7,6 +7,8 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from wandb.integration.sb3 import WandbCallback
 
+import gym_env  # noqa: F401
+
 env_name = "YouBlewIt-v1"
 
 wandb.init(

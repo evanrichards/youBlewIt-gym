@@ -5,7 +5,7 @@ from strategies import EvansStrategy
 
 total_turns = 0
 num_games = 1000
-turns_list = []
+turns_list: list[int] = []
 basic_strategy = EvansStrategy(
     {
         6: 2000,
@@ -18,7 +18,7 @@ basic_strategy = EvansStrategy(
 )
 for _num in range(num_games):
     ybi = YouBlewIt(basic_strategy, stop_score=10000)
-    score, turns = ybi.play()
+    _score, turns = ybi.play()
     turns_list.append(turns)
     total_turns = turns + total_turns
 

@@ -1,33 +1,33 @@
+from collections.abc import Sequence
 from statistics import mean
 
 import numpy as np
-from scipy.optimize import fmin_ncg
+from numpy.typing import NDArray
+from scipy.optimize import minimize
 
 from game import YouBlewIt
 from strategies import EvansStrategy
 
-# fmin_slsqp(func, x0, eqcons=(), f_eqcons=None, ieqcons=(), f_ieqcons=None, bounds=(), fprime=None, fprime_eqcons=None, fprime_ieqcons=None, args=(), iter=100, acc=1e-06, iprint=1, disp=None, full_output=0, epsilon=1.4901161193847656e-08, callback=None)[source]
-x0 = np.array([0, 200, 200, 200, 2000, 2000])
-ep = np.array([50, 50, 50, 50, 50, 50])
+x0 = np.array([0.0, 200.0, 200.0, 200.0, 2000.0, 2000.0])
 
 
-def f(x):
+def f(x: Sequence[float]) -> float:
     one, two, three, four, five, six = x
     num_games = 1000
-    turns_list = []
+    turns_list: list[int] = []
     basic_strategy = EvansStrategy(
         {
-            6: six,
-            5: five,
-            4: four,
-            3: three,
-            2: two,
-            1: one,
+            6: int(six),
+            5: int(five),
+            4: int(four),
+            3: int(three),
+            2: int(two),
+            1: int(one),
         }
     )
     for _num in range(num_games):
         ybi = YouBlewIt(basic_strategy, stop_score=10000)
-        score, turns = ybi.play()
+        _score, turns = ybi.play()
         turns_list.append(turns)
     return mean(turns_list)
 
@@ -42,14 +42,9 @@ bounds = (
 )
 
 
-def cb(xb):
+def cb(xb: NDArray[np.float64]) -> None:
     print(xb)
 
 
-print(fmin_ncg(f, x0, epsilon=ep, disp=True, callback=cb))
-
-# print minimize(f, x0,
-# 		method='SLSQP',
-# 		bounds=bounds,
-# 		options={'disp': True, 'eps': 50},
-# 		callback=cb)
+result = minimize(f, x0, method="Nelder-Mead", callback=cb, options={"disp": True})
+print(result)

@@ -50,4 +50,4 @@ indent-style = "space"
 
 [tool.pyright]
 pythonVersion = "3.10"
-typeCheckingMode = "off"
+typeCheckingMode = "basic"
